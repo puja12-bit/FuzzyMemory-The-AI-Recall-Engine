@@ -1,0 +1,79 @@
+[
+  {
+    "id": 1,
+    "title": "Twinkle Twinkle Little Star",
+    "artist": "Public Domain",
+    "said_by": "",
+    "metadata": "Common English lullaby",
+    "context": [
+      "children lullaby",
+      "night sky",
+      "bedtime",
+      "innocent melody used in children's content"
+    ],
+    "semitones": [0, 0, 7, 7, 9, 9, 7, 5, 5, 4, 4, 2, 2, 0],
+    "youtube_search": "https://www.youtube.com/results?search_query=Twinkle+Twinkle+Little+Star",
+    "derivatives": [
+      {"type":"remix","label":"Synth Remix (example)","link":"https://www.youtube.com/results?search_query=twinkle+remix"},
+      {"type":"meme","label":"Twinkle meme compilation","link":"https://www.youtube.com/results?search_query=twinkle+meme"},
+      {"type":"ad","label":"Used in baby product ad (example)","link":"https://www.youtube.com/results?search_query=twinkle+ad"}
+    ]
+  },
+  {
+    "id": 2,
+    "title": "Happy Birthday",
+    "artist": "Public Domain",
+    "said_by": "",
+    "metadata": "Birthday song",
+    "context": [
+      "celebration",
+      "cake",
+      "birthday party",
+      "short chant used at parties"
+    ],
+    "semitones": [0, 0, 2, 0, 5, 4, 0, 0, 2, 0, 7, 5],
+    "youtube_search": "https://www.youtube.com/results?search_query=Happy+Birthday+song",
+    "derivatives": [
+      {"type":"cover","label":"Acoustic Cover","link":"https://www.youtube.com/results?search_query=happy+birthday+cover"},
+      {"type":"meme","label":"Birthday meme remix","link":"https://www.youtube.com/results?search_query=birthday+meme"}
+    ]
+  },
+  {
+    "id": 3,
+    "title": "Greensleeves",
+    "artist": "Public Domain",
+    "said_by": "",
+    "metadata": "Traditional English folk",
+    "context": [
+      "old english",
+      "medieval feel",
+      "period drama soundtrack",
+      "classical folk"
+    ],
+    "semitones": [0, -2, 0, 2, 4, 2, 0, -2, 0, 2, 0],
+    "youtube_search": "https://www.youtube.com/results?search_query=Greensleeves",
+    "derivatives": [
+      {"type":"arrangement","label":"Orchestral arrangement","link":"https://www.youtube.com/results?search_query=greensleeves+orchestra"},
+      {"type":"ad","label":"Used in heritage travel ad","link":"https://www.youtube.com/results?search_query=greensleeves+ad"}
+    ]
+  },
+  {
+    "id": 4,
+    "title": "Example Movie Line - 'Freedom in the rain'",
+    "artist": "Movie Dialogue (example)",
+    "said_by": "Arjun (actor example)",
+    "metadata": "A dramatic line about freedom spoken in a rain scene from a 90s film (demo entry).",
+    "context": [
+      "rain scene",
+      "90s hindi film",
+      "dialogue about freedom",
+      "dramatic whisper in the rain"
+    ],
+    "semitones": [],
+    "youtube_search": "https://www.youtube.com/results?search_query=rain+scene+dialogue+freedom",
+    "derivatives": [
+      {"type":"meme","label":"Dialogue clip used in meme", "link":"https://www.youtube.com/results?search_query=rain+scene+meme"},
+      {"type":"ad","label":"Used as voiceover in an ad (example)", "link":"https://www.youtube.com/results?search_query=dialogue+ad+voiceover"}
+    ]
+  }
+]
