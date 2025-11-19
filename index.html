@@ -1,0 +1,223 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>FuzzyMemory — Context Recall & Creator Tools</title>
+  <style>
+    body{font-family:Arial; max-width:980px; margin:20px auto; padding:12px;}
+    button,input,textarea{padding:8px 10px; margin:6px;}
+    .card{border:1px solid #ddd;padding:12px;margin:8px 0;border-radius:8px;background:#fff;}
+    .muted{color:#666;font-size:13px;}
+    .deriv{font-size:13px;color:#0b6ef6;}
+    #results{margin-top:12px;}
+  </style>
+</head>
+<body>
+  <h1>FuzzyMemory</h1>
+  <p class="muted">Context recall + remix/meme mapping + creator tools demo (tiny seed). Describe a scene, mood, or ad and see related results and derivatives.</p>
+
+  <h3>Context Recall (Powered by Gemini AI)</h3>
+  <textarea id="contextQuery" rows="2" style="width:100%" placeholder="Describe the scene, mood, or context. e.g. '90s rain scene about freedom'"></textarea><br/>
+  <button id="contextBtn">Find by Context</button>
+  <div id="contextResults"></div>
+
+  <hr/>
+  <h3>Humming / Text search</h3>
+  <input id="textq" placeholder="Text search title/keyword" style="width:60%"/>
+  <button id="searchBtn">Search Text</button>
+  <div>
+    <button id="record">Start Recording (5s)</button>
+    <button id="stop" disabled>Stop</button>
+    <span id="status"></span>
+  </div>
+
+  <div id="results">No results yet.</div>
+
+  <h3>Creator Tools</h3>
+  <p class="muted">Use 'Use Last Hum' or upload an audio file to run a similarity/plagiarism check against seed items.</p>
+  <div>
+    <input type="file" id="fileInput" accept="audio/*" />
+    <button id="checkBtn">Check Uploaded File</button>
+    <button id="useLastBtn">Use Last Hum</button>
+  </div>
+  <div id="creatorOut" class="muted"></div>
+
+<script>
+/* This UI wires to the server endpoints:
+   - POST /api/context { query: "..." } -> contextResults
+   - GET  /api/search?q=... -> results
+   - POST /api/hum { semitone_seq: [...] } -> results
+   - POST /api/check { semitone_seq: [...] } -> creatorOut
+*/
+
+let mediaRecorder, audioChunks, lastSemis = null;
+const RECORD_SECONDS = 5;
+const FRAME_SIZE = 2048;
+const HOP = 512;
+const statusEl = document.getElementById('status');
+const resultsEl = document.getElementById('results');
+const contextResultsEl = document.getElementById('contextResults');
+const creatorOut = document.getElementById('creatorOut');
+
+document.getElementById('contextBtn').onclick = async () => {
+  const q = document.getElementById('contextQuery').value.trim();
+  if (!q) { contextResultsEl.innerText = 'Write something describing the scene/mood.'; return; }
+  contextResultsEl.innerText = 'Consulting AI...';
+  try {
+    const resp = await fetch('/api/context', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({query: q})});
+    const json = await resp.json();
+    if (!json.results || json.results.length === 0) { contextResultsEl.innerText = json.message || 'No context matches.'; return; }
+    const html = json.results.map(r => {
+      const derivs = (r.derivatives||[]).map(d => `<div class="deriv">[${d.type}] <a href="${d.link}" target="_blank">${d.label}</a></div>`).join('');
+      const ctxt = (r.context||[]).map(c => `<span class="muted">${c}</span>`).join(' ');
+      return `<div class="card"><strong>${r.title}</strong> — ${r.artist || ''} <div class="muted">score: ${r.context_score}</div><div style="margin-top:6px;"><a href="${r.youtube_search}" target="_blank">YouTube / search</a></div>${derivs}<div style="margin-top:6px">context tags: ${ctxt}</div></div>`;
+    }).join('');
+    contextResultsEl.innerHTML = html;
+  } catch (e) {
+    contextResultsEl.innerText = "Error connecting to server.";
+  }
+};
+
+document.getElementById('searchBtn').onclick = async () => {
+  const q = document.getElementById('textq').value;
+  resultsEl.innerText = 'Searching...';
+  const r = await fetch('/api/search?q=' + encodeURIComponent(q));
+  const j = await r.json();
+  renderMatches(j);
+};
+
+document.getElementById('record').onclick = async () => {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({audio:true});
+    mediaRecorder = new MediaRecorder(stream);
+  } catch (e) {
+    resultsEl.innerText = 'Microphone access denied. Allow mic and retry.';
+    return;
+  }
+  audioChunks = [];
+  mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+  mediaRecorder.onstop = async () => {
+    statusEl.innerText = 'Processing...';
+    const blob = new Blob(audioChunks, { type: 'audio/webm' });
+    const arr = await blob.arrayBuffer();
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    let audioBuffer;
+    try { audioBuffer = await audioCtx.decodeAudioData(arr); }
+    catch(e){ resultsEl.innerText = 'Decoding error. Use Chrome.'; statusEl.innerText=''; return; }
+    const channelData = audioBuffer.getChannelData(0);
+    const sampleRate = audioBuffer.sampleRate;
+    const freqs = [];
+    const corrs = [];
+    for (let i=0; i+FRAME_SIZE < channelData.length; i += HOP) {
+      const frame = channelData.slice(i, i+FRAME_SIZE);
+      const {f0,corr} = autoCorrelateWithCorr(frame, sampleRate);
+      if (f0 && f0 > 60 && f0 < 1200 && corr > 0.22) { freqs.push(f0); corrs.push(corr); }
+    }
+    if (freqs.length < 3) { resultsEl.innerText = "Not enough pitched frames. Hum longer/clearer."; statusEl.innerText=''; return; }
+    freqs.sort((a,b)=>a-b);
+    const median = freqs[Math.floor(freqs.length/2)];
+    const semis = freqs.map(f => 12 * Math.log2(f / median));
+    const semisFiltered = semis.filter(s => Math.abs(s) < 18).map(s => Math.round(s));
+    lastSemis = semisFiltered;
+    const resp = await fetch('/api/hum', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({semitone_seq: semisFiltered})});
+    const json = await resp.json();
+    renderMatches(json);
+    statusEl.innerText = '';
+  };
+  mediaRecorder.start();
+  document.getElementById('record').disabled = true;
+  document.getElementById('stop').disabled = false;
+  statusEl.innerText = `Recording ${RECORD_SECONDS}s...`;
+  setTimeout(()=>{ if (mediaRecorder && mediaRecorder.state==='recording') mediaRecorder.stop(); }, RECORD_SECONDS*1000);
+};
+
+document.getElementById('stop').onclick = () => {
+  if (mediaRecorder && mediaRecorder.state === 'recording') mediaRecorder.stop();
+  document.getElementById('record').disabled = false;
+  document.getElementById('stop').disabled = true;
+};
+
+function renderMatches(json){
+  if (!json) { resultsEl.innerText = 'No response.'; return; }
+  if (json.results) {
+    // text search results
+    if(json.results.length === 0) { resultsEl.innerText = 'No text matches.'; return; }
+    const html = json.results.map(m => {
+      const derivs = (m.derivatives||[]).map(d => `<div class="deriv">[${d.type}] <a href="${d.link}" target="_blank">${d.label}</a></div>`).join('');
+      return `<div class="card"><strong>${m.title}</strong> — ${m.artist || 'Unknown'}<div style="margin-top:6px;"><a href="${m.youtube_search}" target="_blank">YouTube / search</a></div>${derivs}</div>`;
+    }).join('');
+    resultsEl.innerHTML = html;
+    return;
+  }
+  if (!json.matches || json.matches.length === 0) { resultsEl.innerText = json.message || 'No matches'; return; }
+  const html = json.matches.map(m => {
+    const derivs = (m.derivatives||[]).map(d => `<div class="deriv">[${d.type}] <a href="${d.link}" target="_blank">${d.label}</a></div>`).join('');
+    return `<div class="card"><strong>${m.title}</strong> — ${m.artist || 'Unknown'}<div class="muted">distance: ${m.distance.toFixed(2)}</div><div style="margin-top:6px;"><a href="${m.youtube_search}" target="_blank">YouTube / search</a></div>${derivs}</div>`;
+  }).join('');
+  resultsEl.innerHTML = html;
+}
+
+// Creator tools
+document.getElementById('useLastBtn').onclick = async () => {
+  if (!lastSemis) { creatorOut.innerText = 'No recent hum available. Record first.'; return; }
+  await postCheck(lastSemis);
+};
+
+document.getElementById('checkBtn').onclick = async () => {
+  const file = document.getElementById('fileInput').files[0];
+  if (!file) { creatorOut.innerText = 'Choose an audio file (mobile recording or wav)'; return; }
+  creatorOut.innerText = 'Processing file (client-side)...';
+  const arr = await file.arrayBuffer();
+  const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  let audioBuffer;
+  try { audioBuffer = await audioCtx.decodeAudioData(arr); }
+  catch(e){ creatorOut.innerText = 'Could not decode audio file in browser.'; return; }
+  const channelData = audioBuffer.getChannelData(0);
+  const freqs = [];
+  for (let i=0; i+FRAME_SIZE < channelData.length; i += HOP) {
+    const frame = channelData.slice(i, i+FRAME_SIZE);
+    const {f0,corr} = autoCorrelateWithCorr(frame, audioBuffer.sampleRate);
+    if (f0 && f0 > 60 && f0 < 1200 && corr > 0.22) freqs.push(f0);
+  }
+  if (freqs.length < 3) { creatorOut.innerText = 'Not enough pitched frames in file.'; return; }
+  freqs.sort((a,b)=>a-b);
+  const median = freqs[Math.floor(freqs.length/2)];
+  const semis = freqs.map(f => 12 * Math.log2(f / median)).filter(s => Math.abs(s) < 18).map(s => Math.round(s));
+  if (semis.length < 3) { creatorOut.innerText = 'Not enough usable semitone frames after filtering.'; return; }
+  lastSemis = semis;
+  await postCheck(semis);
+};
+
+async function postCheck(semiSeq){
+  creatorOut.innerText = 'Checking...';
+  const resp = await fetch('/api/check', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({semitone_seq: semiSeq})});
+  const json = await resp.json();
+  if (json.verdict) creatorOut.innerHTML = `<strong>Verdict:</strong> ${json.verdict}<br/><pre>${JSON.stringify(json.matches, null, 2)}</pre>`;
+  else creatorOut.innerText = JSON.stringify(json, null, 2);
+}
+
+// autoCorr helper
+function autoCorrelateWithCorr(buf, sampleRate) {
+  const size = buf.length;
+  let rms = 0;
+  for (let i = 0; i < size; i++) { let val = buf[i]; rms += val*val; }
+  rms = Math.sqrt(rms/size);
+  if (rms < 0.003) return {f0:null,corr:0};
+  let bestOffset = -1;
+  let bestCorr = 0;
+  for (let offset = 20; offset < size/2; offset++) {
+    let corr = 0;
+    for (let i = 0; i < size - offset; i++) corr += buf[i] * buf[i + offset];
+    corr = corr / (size - offset);
+    if (corr > bestCorr) { bestCorr = corr; bestOffset = offset; }
+  }
+  if (bestOffset <= 0) return {f0:null, corr:0};
+  const frequency = sampleRate / bestOffset;
+  let energy = 0;
+  for (let i=0;i<size;i++) energy += Math.abs(buf[i]);
+  const normCorr = bestCorr / (energy/size + 1e-9);
+  return {f0: frequency, corr: normCorr};
+}
+</script>
+</body>
+</html>
