@@ -1,84 +1,80 @@
 Fuzzy Memory - The Recall Context Engine
-Problem: Have you ever had a song or a movie scene or a quote or book context stuck in your head but couldn't remember the name? You know the vibe "that sad rain scene from the 90s" or you can hum the tune, but standard keyword search fails you.
-
-Fuzzy Memory is a lightweight recall engine that helps users retrieve information from incomplete memory cues such as humming, vague text, or metadata fragments.
-Powered by Cloud Run, FastAPI, and Gemini reasoning.
-
-Features:
-Hum based recall using semitone extraction and Dynamic Time Warping.
-Vague text interpretation using Gemini.
-Structured metadata lookup from a small seed dataset.
-Cloud Run backend that acts as a recall agent.
-Clean and simple UI for demo purposes.
-Early foundation for creator compliance and similarity checks.
-
-
-Components
-
-Frontend UI
-Cloud Run backend (FastAPI)
-Seed dataset (JSON or optional MongoDB Atlas)
-Optional Cloud Storage for audio
-Gemini (Vertex AI) for reasoning
-
-Tech Stack
-
+❓ The Problem
+Have you ever had a song, movie scene, quote, or book context stuck in your head but couldn't remember the name? You know the vibe—"that sad rain scene from the 90s"—or you can hum the tune, but standard keyword search fails you.
+💡 The Solution
+Fuzzy Memory is a lightweight recall engine that helps users retrieve information from incomplete memory cues. It is powered by Google Cloud Run, FastAPI, and Gemini reasoning to bridge the gap between vague human memory and structured data.
+🚀 Key Features
+Hum-based Recall: Utilizes semitone extraction and Dynamic Time Warping (DTW) to match audio inputs.
+Vague Text Interpretation: Leverages Gemini (Vertex AI) to understand context, mood, and "vibes."
+Structured Metadata Lookup: Fast retrieval from a curated seed dataset.
+Agentic Backend: Cloud Run acts as an intelligent recall agent orchestrating the flow.
+Clean UI: A simple, intuitive interface designed for instant demos.
+Creator Tools: Early foundation for copyright compliance and melody similarity checks.
+🏗️ Components & Architecture
+Frontend: Lightweight UI for audio capture and input.
+Backend: FastAPI service running on Cloud Run.
+Data Layer: JSON seed dataset (with support for optional MongoDB Atlas).
+Storage: Optional Cloud Storage for audio artifacts.
+Reasoning Engine: Gemini (Vertex AI) for semantic understanding.
+🛠️ Tech Stack
 Backend: Python, FastAPI, Uvicorn
 AI Layer: Gemini API (Vertex AI)
-Audio Processing: Dynamic Time Warping (DTW)
+Audio Processing: SciPy, Dynamic Time Warping (DTW)
 Containerization: Docker
-Cloud: Google Cloud Run, Cloud Storage
-Database: JSON seed dataset (or optional MongoDB Atlas)
-
-Prerequisites
-
+Cloud Infrastructure: Google Cloud Run, Cloud Storage
+Database: In-Memory JSON (MVP) / MongoDB Atlas (Production)
+📋 Prerequisites
+Before running the project, ensure you have:
 Python 3.9+
-Docker
-Google Cloud SDK
-Vertex AI access
-Optional: MongoDB Atlas
-
-Installation
-
-Clone the repository:
+Docker installed
+Google Cloud SDK installed and authenticated
+Access to Vertex AI API enabled
+(Optional) MongoDB Atlas account
+⚡ Installation & Local Setup
+1. Clone the repository:
+code
+Bash
 git clone https://github.com/<your-repo>/FuzzyMemory.git
 cd FuzzyMemory
-
-Install dependencies:
+2. Install dependencies:
+code
+Bash
 pip install -r requirements.txt
-
-Run locally:
+3. Run locally:
+code
+Bash
 uvicorn app:app --reload
-
-Docker Setup
-
-Build the image:
+🐳 Docker & Cloud Deployment
+1. Build the Docker image:
+code
+Bash
 docker build -t fuzzymemory .
-
-
-Run the container:
+2. Run the container locally:
+code
+Bash
 docker run -p 8080:8080 fuzzymemory
-
-Deploy to Cloud Run
+3. Deploy to Google Cloud Run:
+code
+Bash
 gcloud run deploy fuzzymemory \
   --source . \
   --region europe-west1 \
   --allow-unauthenticated
+🗺️ Roadmap
 
+Expand audio and metadata collections.
 
-Roadmap
+Add Academic and Medical context recall domains.
 
-Planned enhancements include:
-Larger audio and metadata collections
-Academic and medical context recall
-Vector database integration
-Audio plagiarism and similarity detection
-Reel and meme audio identification
-Personalized recall history
+Implement Vector Database (pgvector) integration.
 
-Compliance
+Develop advanced audio plagiarism and similarity detection.
 
-Only public domain melodies are used
-Metadata is synthetic
-User audio is processed only for matching and not stored
-No copyrighted lyrics or commercial datasets are included
+Add identification for Reels and Meme audio.
+
+Implement personalized recall history.
+⚖️ Compliance
+Melodies: Only public domain melodies are used for the demo.
+Metadata: Synthetic data used for testing purposes.
+Privacy: User audio is processed for matching only and is not permanently stored.
+Copyright: No copyrighted lyrics or commercial datasets are included.
