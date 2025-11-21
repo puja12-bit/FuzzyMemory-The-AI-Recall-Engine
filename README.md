@@ -1,17 +1,16 @@
-Fuzzy Memory - The Recall Context Engine
+#Fuzzy Memory - The Recall Context Engine
 Problem: Have you ever had a song or a movie scene or a quote or book context stuck in your head but couldn't remember the name? You know the vibe "that sad rain scene from the 90s" or you can hum the tune, but standard keyword search fails you.
 
 Fuzzy Memory is a lightweight recall engine that helps users retrieve information from incomplete memory cues such as humming, vague text, or metadata fragments.
 Powered by Cloud Run, FastAPI, and Gemini reasoning.
 
 Features:
-
-  Hum based recall using semitone extraction and Dynamic Time Warping.
-  Vague text interpretation using Gemini.
-  Structured metadata lookup from a small seed dataset.
-  Cloud Run backend that acts as a recall agent.
-  Clean and simple UI for demo purposes.
-  Early foundation for creator compliance and similarity checks.
+Hum based recall using semitone extraction and Dynamic Time Warping.
+Vague text interpretation using Gemini.
+Structured metadata lookup from a small seed dataset.
+Cloud Run backend that acts as a recall agent.
+Clean and simple UI for demo purposes.
+Early foundation for creator compliance and similarity checks.
 
 
 Components
@@ -26,10 +25,10 @@ Tech Stack
 
 Backend: Python, FastAPI, Uvicorn
 AI Layer: Gemini API (Vertex AI)
-Audio Processing: Dynamic Time Warping
+Audio Processing: Dynamic Time Warping (DTW)
 Containerization: Docker
 Cloud: Google Cloud Run, Cloud Storage
-Database: JSON seed dataset (optional MongoDB Atlas)
+Database: JSON seed dataset (or optional MongoDB Atlas)
 
 Prerequisites
 
