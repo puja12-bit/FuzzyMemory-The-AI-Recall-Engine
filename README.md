@@ -6,12 +6,12 @@ Powered by Cloud Run, FastAPI, and Gemini reasoning.
 
 Features:
 
-Hum based recall using semitone extraction and Dynamic Time Warping.
-Vague text interpretation using Gemini.
-Structured metadata lookup from a small seed dataset.
-Cloud Run backend that acts as a recall agent.
-Clean and simple UI for demo purposes.
-Early foundation for creator compliance and similarity checks.
+  Hum based recall using semitone extraction and Dynamic Time Warping.
+  Vague text interpretation using Gemini.
+  Structured metadata lookup from a small seed dataset.
+  Cloud Run backend that acts as a recall agent.
+  Clean and simple UI for demo purposes.
+  Early foundation for creator compliance and similarity checks.
 
 
 Components
