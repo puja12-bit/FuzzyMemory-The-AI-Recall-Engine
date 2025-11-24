@@ -1,233 +1,245 @@
-from typing import Optional
-from fastapi import Depends
+import os
+import json
+from typing import Optional, List
+
+import numpy as np
+import librosa
+from fastapi import FastAPI, Depends, UploadFile, File, HTTPException
+from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
+
 from db import SessionLocal, ContentItem, init_db_and_seed
 
-import json, os, math, sqlite3, datetime, re
-import numpy as np
-from scipy.spatial.distance import cdist
-from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, JSONResponse
-import vertexai
-from vertexai.generative_models import GenerativeModel
+# -------------------------------------------------------------------
+# Configuration
+# -------------------------------------------------------------------
 
-APP_DIR = os.path.dirname(__file__)
-SEED_PATH = os.path.join(APP_DIR, "seed_data.json")
-ANALYTICS_DB = os.path.join(APP_DIR, "analytics.db")
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+SEED_FILE = os.path.join(BASE_DIR, "seed_data.json")
 
-app = FastAPI(title="FuzzyMemory Core")
+# Audio params for humming
+SR = 22050
+FMIN = librosa.note_to_hz("C2")
+FMAX = librosa.note_to_hz("C7")
+FRAME_HOP = 512
 
-# --- 1. GOOGLE GEMINI SETUP (The Fix for Hackathon) ---
-# This attempts to connect to Google's AI. If it fails, it falls back to keywords.
-model = None
-try:
-    PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT")
-    if PROJECT_ID:
-        vertexai.init(project=PROJECT_ID, location="us-central1")
-        model = GenerativeModel("gemini-1.5-flash-001")
-        print("✅ Gemini AI Connected")
-    else:
-        print("⚠️ GOOGLE_CLOUD_PROJECT not set. AI features will be limited.")
-except Exception as e:
-    print(f"⚠️ AI Init Failed: {e}")
+# -------------------------------------------------------------------
+# App init
+# -------------------------------------------------------------------
 
-# ---------------- analytics ----------------
-def init_analytics():
+app = FastAPI(title="Fuzzy Memory - Recall Context Engine")
+
+# Initialize DB and seed from seed_data.json on startup
+init_db_and_seed()
+
+# Load seed JSON for humming (we still use this for semitones)
+if os.path.exists(SEED_FILE):
+    with open(SEED_FILE, "r", encoding="utf-8") as f:
+        SEED_ENTRIES = json.load(f)
+else:
+    SEED_ENTRIES = []
+    print("WARNING: seed_data.json not found. Humming endpoint will have no matches.")
+
+
+# -------------------------------------------------------------------
+# Database dependency
+# -------------------------------------------------------------------
+
+def get_db():
+    db = SessionLocal()
     try:
-        conn = sqlite3.connect(ANALYTICS_DB)
-        c = conn.cursor()
-        c.execute('''
-          CREATE TABLE IF NOT EXISTS hits (
-            id INTEGER PRIMARY KEY,
-            ts TIMESTAMP,
-            endpoint TEXT,
-            q TEXT
-          )
-        ''')
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        print(f"Analytics DB Init skipped: {e}")
+        yield db
+    finally:
+        db.close()
 
-def log_hit(endpoint, q=""):
-    try:
-        conn = sqlite3.connect(ANALYTICS_DB)
-        c = conn.cursor()
-        c.execute('INSERT INTO hits (ts, endpoint, q) VALUES (?, ?, ?)', (datetime.datetime.utcnow(), endpoint, str(q)))
-        conn.commit()
-        conn.close()
-    except Exception:
-        pass # Fail silently on Cloud Run if DB is locked
 
-init_analytics()
+# -------------------------------------------------------------------
+# Utility: Simple DTW distance for semitone sequences
+# -------------------------------------------------------------------
 
-# ---------------- seed loader ----------------
-def load_seed():
-    if not os.path.exists(SEED_PATH):
-        print("❌ Error: seed_data.json not found.")
-        return []
-    with open(SEED_PATH, "r", encoding="utf8") as f:
-        data = json.load(f)
-    for e in data:
-        # Tokenized text for fallback search
-        e["search_text"] = " ".join(filter(None, [
-            e.get("title",""),
-            e.get("artist",""),
-            e.get("said_by",""),
-            e.get("metadata",""),
-            " ".join(e.get("context", []))
-        ])).lower()
-        # Preserve semitone arrays as numpy arrays
-        e["semitones"] = np.array(e.get("semitones", []), dtype=float) if e.get("semitones") else np.array([], dtype=float)
-    return data
+def dtw_distance(semi_q: List[float], semi_t: List[float]) -> float:
+    """
+    Very simple DTW over 1D sequences.
+    """
+    q = np.array(semi_q, dtype=float)
+    t = np.array(semi_t, dtype=float)
 
-SEED = load_seed()
+    if len(q) < 3 or len(t) < 3:
+        return float("inf")
 
-# ---------------- DTW for melody compare (Your Math Logic) ----------------
-def dtw_distance(q_arr, t_arr):
-    if len(q_arr) == 0 or len(t_arr) == 0:
-        return float('inf')
-    q = np.array(q_arr, dtype=float).reshape(-1,1)
-    t = np.array(t_arr, dtype=float).reshape(-1,1)
-    cost = cdist(q, t, metric=lambda a,b: abs(a[0]-b[0]))
-    n,m = cost.shape
-    D = np.full((n+1, m+1), np.inf)
-    D[0,0] = 0.0
-    for i in range(1,n+1):
-        for j in range(1,m+1):
-            D[i,j] = cost[i-1,j-1] + min(D[i-1,j], D[i,j-1], D[i-1,j-1])
-    dist = D[n,m]
+    n = len(q)
+    m = len(t)
+    cost = np.zeros((n, m), dtype=float)
+
+    for i in range(n):
+        for j in range(m):
+            cost[i, j] = abs(q[i] - t[j])
+
+    D = np.full((n + 1, m + 1), np.inf, dtype=float)
+    D[0, 0] = 0.0
+
+    for i in range(1, n + 1):
+        for j in range(1, m + 1):
+            D[i, j] = cost[i - 1, j - 1] + min(
+                D[i - 1, j], D[i, j - 1], D[i - 1, j - 1]
+            )
+
+    dist = D[n, m]
     norm = dist / (n + m)
     return float(norm)
 
-# ---------------- endpoints ----------------
-@app.get("/")
-def index():
-    return FileResponse(os.path.join(APP_DIR, "index.html"))
 
-@app.post("/api/context")
-async def context_search(payload: dict):
-    q = (payload.get("query","") or "").strip()
-    log_hit("/api/context", q)
-    if not q:
-        return JSONResponse({"error":"send non-empty 'query' field"}, status_code=400)
-    
-    # --- STRATEGY 1: TRY GEMINI AI (New Hackathon Feature) ---
-    if model:
+def extract_semitones_from_audio_bytes(data: bytes) -> List[float]:
+    """
+    Convert an uploaded hum into a semitone contour.
+    """
+    import tempfile
+
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+        tmp.write(data)
+        tmp_path = tmp.name
+
+    try:
+        y, _ = librosa.load(tmp_path, sr=SR, mono=True)
+        f0, voiced_flag, _ = librosa.pyin(
+            y,
+            fmin=FMIN,
+            fmax=FMAX,
+            sr=SR,
+            frame_length=2048,
+            hop_length=FRAME_HOP,
+        )
+        with np.errstate(divide="ignore", invalid="ignore"):
+            semis = 12 * np.log2(f0 / 440.0)
+        # keep voiced only
+        voiced_idx = np.where(~np.isnan(semis))[0]
+        if len(voiced_idx) < 3:
+            return []
+        semis_clean = semis[voiced_idx]
+        semis_clean = semis_clean.tolist()
+        return semis_clean
+    finally:
         try:
-            # Prepare clean data for AI (exclude heavy math arrays)
-            slim_seed = [{k: v for k, v in x.items() if k != 'semitones'} for x in SEED]
-            
-            prompt = f"""
-            You are a Cultural Historian.
-            DATABASE: {json.dumps(slim_seed)}
-            USER QUERY: "{q}"
-            
-            TASK: Find the best match in the DATABASE based on mood, scene, or context.
-            Output JSON: {{ "id": 1, "explanation": "Reason..." }}
-            """
-            
-            response = model.generate_content(prompt)
-            cleaned = response.text.replace("```json", "").replace("```", "").strip()
-            ai_res = json.loads(cleaned)
-            
-            matched_id = ai_res.get("id")
-            matched_item = next((x for x in SEED if x["id"] == matched_id), None)
-            
-            if matched_item:
-                return {"results": [{
-                    "id": matched_item["id"],
-                    "title": matched_item["title"],
-                    "artist": matched_item.get("artist",""),
-                    "context_score": 0.99, # AI is confident
-                    "youtube_search": matched_item.get("youtube_search"),
-                    "derivatives": matched_item.get("derivatives", []),
-                    "context": [ai_res.get("explanation", "AI Match")]
-                }]}
-        except Exception as e:
-            print(f"AI Failed, falling back to keywords: {e}")
-            # Fall through to Strategy 2 if AI fails
+            os.unlink(tmp_path)
+        except Exception:
+            pass
 
-    # --- STRATEGY 2: FALLBACK TO KEYWORDS (Your Old Logic) ---
-    def context_score(query, item_text):
-        q_tokens = query.lower().split()
-        if not q_tokens: return 0.0
-        itokens = item_text.split()
-        overlap = sum(1 for t in q_tokens if t in itokens)
-        return overlap / max(1, len(q_tokens))
 
-    scored = []
-    for e in SEED:
-        score = context_score(q, e.get("search_text",""))
-        scored.append((score, e))
-    scored.sort(key=lambda x: x[0], reverse=True)
-    
+# -------------------------------------------------------------------
+# Routes
+# -------------------------------------------------------------------
+
+@app.get("/", response_class=HTMLResponse)
+async def root():
+    """
+    Simple home / health endpoint.
+    """
+    return """
+    <html>
+      <head><title>Fuzzy Memory</title></head>
+      <body>
+        <h1>Fuzzy Memory - The Recall Context Engine</h1>
+        <p>Backend is running.</p>
+        <ul>
+          <li>GET /api/search/text?q=your+query</li>
+          <li>POST /api/search/hum (multipart/form-data, field: file)</li>
+        </ul>
+      </body>
+    </html>
+    """
+
+
+@app.get("/api/search/text")
+async def search_text(q: Optional[str] = "", db: Session = Depends(get_db)):
+    """
+    Text-based recall over the content_items table.
+    Searches title, creator, and context using a LIKE-based filter.
+    """
+    q = (q or "").strip().lower()
+    if not q:
+        return {"query": q, "results": []}
+
+    like_pattern = f"%{q}%"
+
+    items = (
+        db.query(ContentItem)
+        .filter(
+            (ContentItem.title.ilike(like_pattern))
+            | (ContentItem.creator.ilike(like_pattern))
+            | (ContentItem.context.ilike(like_pattern))
+        )
+        .limit(30)
+        .all()
+    )
+
     results = []
-    for s,e in scored[:5]:
-        if s <= 0: continue
-        results.append({
-            "id": e["id"],
-            "title": e["title"],
-            "artist": e.get("artist",""),
-            "context_score": round(s,3),
-            "youtube_search": e.get("youtube_search"),
-            "derivatives": e.get("derivatives", []),
-            "context": e.get("context",[])
-        })
-    
-    if not results:
-        return {"results": [], "message":"No matches found."}
-    return {"results": results}
+    for item in items:
+        results.append(
+            {
+                "id": item.id,
+                "type": item.type,
+                "title": item.title,
+                "creator": item.creator,
+                "context": item.context,
+                "metadata": json.loads(item.metadata_json)
+                if item.metadata_json
+                else {},
+            }
+        )
 
-@app.get("/api/search")
-def text_search(q: str = ""):
-    log_hit("/api/search", q)
-    ql = (q or "").strip().lower()
-    if not ql: return {"results":[]}
-    res = []
-    for e in SEED:
-        if ql in e["search_text"]:
-            res.append({
-                "id": e["id"],
-                "title": e["title"],
-                "artist": e["artist"],
-                "youtube_search": e["youtube_search"],
-                "derivatives": e.get("derivatives",[])
-            })
-    return {"results": res}
+    return {"query": q, "results": results}
 
-@app.post("/api/hum")
-async def hum_match(payload: dict):
-    log_hit("/api/hum", payload.get("semitone_seq", "") )
-    seq = payload.get("semitone_seq", [])
-    if not seq or len(seq) < 3:
-        return JSONResponse({"error":"send semitone_seq of length >=3"}, status_code=400)
-    
+
+@app.post("/api/search/hum")
+async def search_hum(file: UploadFile = File(...)):
+    """
+    Hum-based recall using semitone DTW against seed_data.json.
+    This still uses the semitones from the JSON entries.
+    Later we can move this into DB / embedding.
+    """
+    if not SEED_ENTRIES:
+        raise HTTPException(
+            status_code=500,
+            detail="No seed entries loaded. Add seed_data.json to the app folder.",
+        )
+
+    data = await file.read()
+    semis_q = extract_semitones_from_audio_bytes(data)
+    if len(semis_q) < 3:
+        return {
+            "matches": [],
+            "message": "Could not detect enough pitched frames. Try humming more clearly for 3–6 seconds.",
+        }
+
     scored = []
-    for e in SEED:
-        if e["semitones"].size == 0: continue
-        dist = dtw_distance(seq, e["semitones"])
-        scored.append((dist, e))
-    
+    for entry in SEED_ENTRIES:
+        seq = entry.get("semitones") or []
+        if not seq:
+            continue
+        dist = dtw_distance(semis_q, seq)
+        scored.append((dist, entry))
+
     scored.sort(key=lambda x: x[0])
-    
-    results = []
-    for dist, e in scored[:5]:
-        if math.isinf(dist) or dist > 8.0: continue
-        results.append({
-            "id": e["id"],
-            "title": e["title"],
-            "artist": e["artist"],
-            "distance": round(dist, 2),
-            "youtube_search": e.get("youtube_search"),
-            "derivatives": e.get("derivatives", [])
-        })
-        
-    if not results:
-        return {"matches": [], "message":"No melody match found."}
-    return {"matches": results}
 
-@app.post("/api/check")
-async def creator_check(payload: dict):
-    # Re-using hum match logic for copyright check
-    return await hum_match(payload)
+    matches = []
+    for dist, entry in scored[:5]:
+        # rough threshold
+        if np.isinf(dist) or dist > 8.0:
+            continue
+        matches.append(
+            {
+                "title": entry.get("title", ""),
+                "artist": entry.get("artist", ""),
+                "distance": dist,
+                "youtube_search": entry.get("youtube_search", ""),
+                "derivatives": entry.get("derivatives", []),
+            }
+        )
+
+    if not matches:
+        return {
+            "matches": [],
+            "message": "No close match found in the small demo seed set.",
+        }
+
+    return {"matches": matches}
