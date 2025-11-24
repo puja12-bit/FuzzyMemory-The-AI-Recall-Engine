@@ -1,3 +1,8 @@
+from typing import Optional
+from fastapi import Depends
+from sqlalchemy.orm import Session
+from db import SessionLocal, ContentItem, init_db_and_seed
+
 import json, os, math, sqlite3, datetime, re
 import numpy as np
 from scipy.spatial.distance import cdist
